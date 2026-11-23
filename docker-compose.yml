@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: encurt-url-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: encurt_url
+      POSTGRES_USER: encurt_url
+      POSTGRES_PASSWORD: encurt_url
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U encurt_url -d encurt_url"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
