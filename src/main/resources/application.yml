@@ -8,3 +8,6 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+
+app:
+  ip-hash-secret: ${IP_HASH_SECRET:dev-only-change-me}
