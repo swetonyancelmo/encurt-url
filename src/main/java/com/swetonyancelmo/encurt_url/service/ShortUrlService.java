@@ -1,6 +1,8 @@
 package com.swetonyancelmo.encurt_url.service;
 
+import com.swetonyancelmo.encurt_url.exception.InvalidManagementTokenException;
 import com.swetonyancelmo.encurt_url.exception.InvalidUrlException;
+import com.swetonyancelmo.encurt_url.exception.MissingManagementTokenException;
 import com.swetonyancelmo.encurt_url.exception.ShortUrlNotFoundException;
 import com.swetonyancelmo.encurt_url.model.ShortUrl;
 import com.swetonyancelmo.encurt_url.repository.ShortUrlRepository;
@@ -27,26 +29,32 @@ public class ShortUrlService {
     private final ShortUrlRepository shortUrlRepository;
     private final ShortUrlPersister shortUrlPersister;
     private final ShortCodeGenerator codeGenerator;
+    private final ManagementTokenService tokenService;
 
     /**
      * Propositalmente SEM {@code @Transactional}: cada tentativa de insert roda em sua própria
      * transação (em {@link ShortUrlPersister}). Assim, uma colisão de código marca como
      * rollback-only apenas a transação que falhou, e o retry começa limpo.
      */
-    public ShortUrl create(String originalUrl, OffsetDateTime expiresAt) {
+    public CreatedShortUrl create(String originalUrl, OffsetDateTime expiresAt) {
         validateUrl(originalUrl);
         if (expiresAt != null && !expiresAt.isAfter(OffsetDateTime.now())) {
             throw new InvalidUrlException("A data de expiração deve estar no futuro");
         }
+
+        // O token é gerado uma vez só: um retry por colisão de código não deve trocá-lo.
+        String managementToken = tokenService.generate();
+        String managementTokenHash = tokenService.hash(managementToken);
 
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             ShortUrl candidate = ShortUrl.builder()
                     .code(codeGenerator.next())
                     .originalUrl(originalUrl)
                     .expiresAt(expiresAt)
+                    .managementTokenHash(managementTokenHash)
                     .build();
             try {
-                return shortUrlPersister.insert(candidate);
+                return new CreatedShortUrl(shortUrlPersister.insert(candidate), managementToken);
             } catch (DataIntegrityViolationException e) {
                 if (!isUniqueViolation(e)) {
                     throw e;
@@ -63,11 +71,33 @@ public class ShortUrlService {
                 .orElseThrow(() -> new ShortUrlNotFoundException(code));
     }
 
-    @Transactional
-    public void deactivate(String code) {
+    /**
+     * Confere o token de gerenciamento do link. 404 se o código não existe, 401 se não veio token,
+     * 403 se o token não confere.
+     */
+    @Transactional(readOnly = true)
+    public ShortUrl authorizeManagement(String code, String token) {
         ShortUrl shortUrl = shortUrlRepository.findByCode(code)
                 .orElseThrow(() -> new ShortUrlNotFoundException(code));
+        requireManagement(shortUrl, token);
+        return shortUrl;
+    }
+
+    @Transactional
+    public void deactivate(String code, String token) {
+        ShortUrl shortUrl = shortUrlRepository.findByCode(code)
+                .orElseThrow(() -> new ShortUrlNotFoundException(code));
+        requireManagement(shortUrl, token);
         shortUrl.setActive(false);
+    }
+
+    private void requireManagement(ShortUrl shortUrl, String token) {
+        if (token == null || token.isBlank()) {
+            throw new MissingManagementTokenException();
+        }
+        if (!tokenService.matches(token, shortUrl.getManagementTokenHash())) {
+            throw new InvalidManagementTokenException();
+        }
     }
 
     private void validateUrl(String url) {

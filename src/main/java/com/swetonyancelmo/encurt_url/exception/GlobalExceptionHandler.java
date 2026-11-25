@@ -2,6 +2,7 @@ package com.swetonyancelmo.encurt_url.exception;
 
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -51,6 +52,18 @@ public class GlobalExceptionHandler {
                 "Um ou mais parâmetros são inválidos");
         problem.setProperty("errors", errors);
         return problem;
+    }
+
+    @ExceptionHandler(MissingManagementTokenException.class)
+    public ResponseEntity<ProblemDetail> handleMissingToken(MissingManagementTokenException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                .body(problem(HttpStatus.UNAUTHORIZED, "Token ausente", ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidManagementTokenException.class)
+    public ProblemDetail handleInvalidToken(InvalidManagementTokenException ex) {
+        return problem(HttpStatus.FORBIDDEN, "Acesso negado", ex.getMessage());
     }
 
     @ExceptionHandler(InvalidPeriodException.class)

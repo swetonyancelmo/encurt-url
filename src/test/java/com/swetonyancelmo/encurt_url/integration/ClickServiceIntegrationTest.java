@@ -27,7 +27,7 @@ class ClickServiceIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void registerClickStoresEventAndDailyCounterTogether() {
-        ShortUrl url = shortUrlService.create("https://example.com", null);
+        ShortUrl url = shortUrlService.create("https://example.com", null).shortUrl();
 
         clickService.registerClick(url.getId(), "https://google.com", "Mozilla/5.0", "203.0.113.10");
 
@@ -43,7 +43,7 @@ class ClickServiceIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void concurrentClicksAreNeverLost() throws Exception {
-        ShortUrl url = shortUrlService.create("https://example.com", null);
+        ShortUrl url = shortUrlService.create("https://example.com", null).shortUrl();
         int clicks = 50;
 
         ExecutorService pool = Executors.newFixedThreadPool(16);

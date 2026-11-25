@@ -1,11 +1,14 @@
 package com.swetonyancelmo.encurt_url.controller;
 
+import com.swetonyancelmo.encurt_url.exception.InvalidManagementTokenException;
 import com.swetonyancelmo.encurt_url.exception.InvalidUrlException;
+import com.swetonyancelmo.encurt_url.exception.MissingManagementTokenException;
 import com.swetonyancelmo.encurt_url.exception.ShortUrlNotFoundException;
 import com.swetonyancelmo.encurt_url.model.ClickDaily;
 import com.swetonyancelmo.encurt_url.model.ClickDailyId;
 import com.swetonyancelmo.encurt_url.model.ShortUrl;
 import com.swetonyancelmo.encurt_url.service.ClickService;
+import com.swetonyancelmo.encurt_url.service.CreatedShortUrl;
 import com.swetonyancelmo.encurt_url.service.ShortUrlService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -49,7 +52,8 @@ class ShortUrlControllerTest {
     void createReturns201WithLocationAndBody() throws Exception {
         ShortUrl created = ShortUrl.builder().id(1L).code("aB3dE9x")
                 .originalUrl("https://www.example.com").build();
-        when(shortUrlService.create(eq("https://www.example.com"), any())).thenReturn(created);
+        when(shortUrlService.create(eq("https://www.example.com"), any()))
+                .thenReturn(new CreatedShortUrl(created, "token-secreto"));
 
         mockMvc.perform(post("/api/urls")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -59,13 +63,15 @@ class ShortUrlControllerTest {
                 .andExpect(jsonPath("$.code").value("aB3dE9x"))
                 .andExpect(jsonPath("$.shortUrl").value("http://localhost/aB3dE9x"))
                 .andExpect(jsonPath("$.originalUrl").value("https://www.example.com"))
-                .andExpect(jsonPath("$.active").value(true));
+                .andExpect(jsonPath("$.active").value(true))
+                .andExpect(jsonPath("$.managementToken").value("token-secreto"))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
     }
 
     @Test
     void createPassesExpirationToService() throws Exception {
-        when(shortUrlService.create(anyString(), any())).thenReturn(
-                ShortUrl.builder().code("abc1234").originalUrl("https://example.com").build());
+        when(shortUrlService.create(anyString(), any())).thenReturn(new CreatedShortUrl(
+                ShortUrl.builder().code("abc1234").originalUrl("https://example.com").build(), "tok"));
 
         mockMvc.perform(post("/api/urls")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -155,18 +161,55 @@ class ShortUrlControllerTest {
     // ---------- DELETE /api/urls/{code} ----------
 
     @Test
-    void deactivateReturns204() throws Exception {
-        mockMvc.perform(delete("/api/urls/aB3dE9x"))
+    void deactivateReturns204AndPassesTheBearerToken() throws Exception {
+        mockMvc.perform(delete("/api/urls/aB3dE9x").header("Authorization", "Bearer meu-token"))
                 .andExpect(status().isNoContent());
 
-        verify(shortUrlService).deactivate("aB3dE9x");
+        verify(shortUrlService).deactivate("aB3dE9x", "meu-token");
+    }
+
+    @Test
+    void bearerSchemeIsCaseInsensitive() throws Exception {
+        mockMvc.perform(delete("/api/urls/aB3dE9x").header("Authorization", "bearer meu-token"))
+                .andExpect(status().isNoContent());
+
+        verify(shortUrlService).deactivate("aB3dE9x", "meu-token");
+    }
+
+    @Test
+    void deactivateReturns401WithChallengeWhenTokenIsMissing() throws Exception {
+        doThrow(new MissingManagementTokenException()).when(shortUrlService).deactivate("aB3dE9x", null);
+
+        mockMvc.perform(delete("/api/urls/aB3dE9x"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "Bearer"))
+                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Token ausente"));
+    }
+
+    @Test
+    void otherAuthorizationSchemesAreTreatedAsMissingToken() throws Exception {
+        doThrow(new MissingManagementTokenException()).when(shortUrlService).deactivate("aB3dE9x", null);
+
+        mockMvc.perform(delete("/api/urls/aB3dE9x").header("Authorization", "Basic dXNlcjpwYXNz"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deactivateReturns403WhenTokenDoesNotMatch() throws Exception {
+        doThrow(new InvalidManagementTokenException()).when(shortUrlService).deactivate("aB3dE9x", "errado");
+
+        mockMvc.perform(delete("/api/urls/aB3dE9x").header("Authorization", "Bearer errado"))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Acesso negado"));
     }
 
     @Test
     void deactivateReturns404WhenCodeNotFound() throws Exception {
-        doThrow(new ShortUrlNotFoundException("nope")).when(shortUrlService).deactivate("nope");
+        doThrow(new ShortUrlNotFoundException("nope")).when(shortUrlService).deactivate("nope", "tok");
 
-        mockMvc.perform(delete("/api/urls/nope"))
+        mockMvc.perform(delete("/api/urls/nope").header("Authorization", "Bearer tok"))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
                 .andExpect(jsonPath("$.title").value("URL curta não encontrada"));
@@ -181,7 +224,7 @@ class ShortUrlControllerTest {
         when(clickService.dailyStats(eq("aB3dE9x"), any(), any())).thenReturn(List.of(
                 ClickDaily.builder().id(new ClickDailyId(1L, day)).count(7).build()));
 
-        mockMvc.perform(get("/api/urls/aB3dE9x/stats")
+        mockMvc.perform(get("/api/urls/aB3dE9x/stats").header("Authorization", "Bearer meu-token")
                         .param("from", "2026-11-01").param("to", "2026-11-30"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("aB3dE9x"))
@@ -192,7 +235,39 @@ class ShortUrlControllerTest {
                 .andExpect(jsonPath("$.daily[0].day").value("2026-11-24"))
                 .andExpect(jsonPath("$.daily[0].count").value(7));
 
+        verify(shortUrlService).authorizeManagement("aB3dE9x", "meu-token");
         verify(clickService).dailyStats("aB3dE9x", LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30));
+    }
+
+    @Test
+    void statsReturns401WithoutTokenAndNeverTouchesTheData() throws Exception {
+        doThrow(new MissingManagementTokenException()).when(shortUrlService).authorizeManagement("aB3dE9x", null);
+
+        mockMvc.perform(get("/api/urls/aB3dE9x/stats"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "Bearer"));
+
+        verifyNoInteractions(clickService);
+    }
+
+    @Test
+    void statsReturns403WithWrongTokenAndNeverTouchesTheData() throws Exception {
+        doThrow(new InvalidManagementTokenException()).when(shortUrlService).authorizeManagement("aB3dE9x", "errado");
+
+        mockMvc.perform(get("/api/urls/aB3dE9x/stats").header("Authorization", "Bearer errado"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(clickService);
+    }
+
+    @Test
+    void statsAuthorizesBeforeValidatingThePeriod() throws Exception {
+        doThrow(new InvalidManagementTokenException()).when(shortUrlService).authorizeManagement("aB3dE9x", "errado");
+
+        // período inválido + token errado: quem não é dono recebe 403, não detalhes de validação
+        mockMvc.perform(get("/api/urls/aB3dE9x/stats").header("Authorization", "Bearer errado")
+                        .param("from", "2026-12-01").param("to", "2026-11-01"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -239,7 +314,7 @@ class ShortUrlControllerTest {
 
     @Test
     void statsReturns404WhenCodeNotFound() throws Exception {
-        when(clickService.dailyStats(eq("nope"), any(), any()))
+        when(shortUrlService.authorizeManagement(eq("nope"), any()))
                 .thenThrow(new ShortUrlNotFoundException("nope"));
 
         mockMvc.perform(get("/api/urls/nope/stats"))

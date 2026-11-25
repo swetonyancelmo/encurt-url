@@ -33,4 +33,8 @@ public class ShortUrl {
     @Builder.Default
     @Column(nullable = false)
     private boolean active = true;
+
+    /** SHA-256 (hex) do token de gerenciamento; o token em si nunca é armazenado. */
+    @Column(name = "management_token_hash", length = 64)
+    private String managementTokenHash;
 }

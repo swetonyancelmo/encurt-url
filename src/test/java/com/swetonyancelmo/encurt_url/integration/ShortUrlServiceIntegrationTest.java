@@ -39,7 +39,7 @@ class ShortUrlServiceIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void createPersistsUrlWithIdAndGeneratedCode() {
-        ShortUrl created = service.create(URL, null);
+        ShortUrl created = service.create(URL, null).shortUrl();
 
         assertThat(created.getId()).isNotNull();
         assertThat(repository.findByCode(created.getCode())).isPresent();
@@ -53,7 +53,7 @@ class ShortUrlServiceIntegrationTest extends AbstractIntegrationTest {
         codeGenerator.reset();
         codeGenerator.force("AAAAAAA", "AAAAAAA", "BBBBBBB");
 
-        ShortUrl created = service.create(URL, null);
+        ShortUrl created = service.create(URL, null).shortUrl();
 
         assertThat(created.getCode()).isEqualTo("BBBBBBB");
         assertThat(codeGenerator.calls()).isEqualTo(3); // 2 colisões + 1 sucesso
@@ -74,7 +74,7 @@ class ShortUrlServiceIntegrationTest extends AbstractIntegrationTest {
         assertThat(rowCount()).isEqualTo(1); // nada pela metade
         // e o serviço continua saudável depois da falha
         codeGenerator.reset();
-        assertThat(service.create(URL, null).getId()).isNotNull();
+        assertThat(service.create(URL, null).shortUrl().getId()).isNotNull();
     }
 
     @Test
@@ -88,7 +88,7 @@ class ShortUrlServiceIntegrationTest extends AbstractIntegrationTest {
         for (int i = 0; i < threads; i++) {
             futures.add(pool.submit(() -> {
                 start.await();
-                return service.create(URL, null);
+                return service.create(URL, null).shortUrl();
             }));
         }
         start.countDown();
@@ -128,12 +128,38 @@ class ShortUrlServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void managementTokenIsStoredOnlyAsHash() {
+        var created = service.create(URL, null);
+
+        String stored = jdbc.queryForObject("SELECT management_token_hash FROM short_url WHERE code = ?",
+                String.class, created.shortUrl().getCode());
+
+        assertThat(stored).hasSize(64).isNotEqualTo(created.managementToken());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM short_url WHERE management_token_hash = ?",
+                Long.class, created.managementToken())).isZero();
+    }
+
+    @Test
+    void retryAfterCollisionKeepsTheSameTokenValid() {
+        service.create(URL, null);
+        jdbc.update("UPDATE short_url SET code = 'AAAAAAA'");
+        codeGenerator.reset();
+        codeGenerator.force("AAAAAAA", "BBBBBBB");
+
+        var created = service.create(URL, null);
+
+        assertThat(created.shortUrl().getCode()).isEqualTo("BBBBBBB");
+        assertThat(service.authorizeManagement("BBBBBBB", created.managementToken())).isNotNull();
+    }
+
+    @Test
     void resolveAndDeactivateWorkAgainstTheRealDatabase() {
-        ShortUrl created = service.create(URL, null);
+        var createdWithToken = service.create(URL, null);
+        ShortUrl created = createdWithToken.shortUrl();
 
         assertThat(service.resolve(created.getCode()).getOriginalUrl()).isEqualTo(URL);
 
-        service.deactivate(created.getCode());
+        service.deactivate(created.getCode(), createdWithToken.managementToken());
 
         assertThat(repository.findByCode(created.getCode()).orElseThrow().isActive()).isFalse();
         assertThatThrownBy(() -> service.resolve(created.getCode()))
