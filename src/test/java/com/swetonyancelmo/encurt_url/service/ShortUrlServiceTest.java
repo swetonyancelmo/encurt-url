@@ -12,15 +12,18 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.dao.DataIntegrityViolationException;
+
+import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -31,19 +34,29 @@ class ShortUrlServiceTest {
     @Mock
     private ShortUrlRepository repository;
 
+    @Mock
+    private ShortUrlPersister persister;
+
+    @Spy
+    private ShortCodeGenerator codeGenerator = new ShortCodeGenerator();
+
     @InjectMocks
     private ShortUrlService service;
+
+    private static DataIntegrityViolationException uniqueViolation() {
+        return new DataIntegrityViolationException("duplicate key",
+                new SQLException("duplicate key value violates unique constraint", "23505"));
+    }
 
     @Test
     void createSavesUrlWithGeneratedCode() {
         OffsetDateTime expiresAt = OffsetDateTime.now().plusDays(1);
-        when(repository.existsByCode(anyString())).thenReturn(false);
-        when(repository.save(any(ShortUrl.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(persister.insert(any(ShortUrl.class))).thenAnswer(inv -> inv.getArgument(0));
 
         ShortUrl result = service.create(URL, expiresAt);
 
         ArgumentCaptor<ShortUrl> captor = ArgumentCaptor.forClass(ShortUrl.class);
-        verify(repository).save(captor.capture());
+        verify(persister).insert(captor.capture());
         ShortUrl saved = captor.getValue();
         assertThat(saved.getCode()).matches("[0-9A-Za-z]{7}");
         assertThat(saved.getOriginalUrl()).isEqualTo(URL);
@@ -54,8 +67,7 @@ class ShortUrlServiceTest {
 
     @Test
     void createAcceptsNullExpiration() {
-        when(repository.existsByCode(anyString())).thenReturn(false);
-        when(repository.save(any(ShortUrl.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(persister.insert(any(ShortUrl.class))).thenAnswer(inv -> inv.getArgument(0));
 
         ShortUrl result = service.create("http://example.com", null);
 
@@ -63,25 +75,39 @@ class ShortUrlServiceTest {
     }
 
     @Test
-    void createRetriesWhenCodeAlreadyExists() {
-        when(repository.existsByCode(anyString())).thenReturn(true, true, false);
-        when(repository.save(any(ShortUrl.class))).thenAnswer(inv -> inv.getArgument(0));
+    void createRetriesWithNewCodeWhenUniqueConstraintIsViolated() {
+        when(persister.insert(any(ShortUrl.class)))
+                .thenThrow(uniqueViolation(), uniqueViolation())
+                .thenAnswer(inv -> inv.getArgument(0));
 
-        service.create(URL, null);
+        ShortUrl result = service.create(URL, null);
 
-        verify(repository, times(3)).existsByCode(anyString());
-        verify(repository).save(any(ShortUrl.class));
+        ArgumentCaptor<ShortUrl> captor = ArgumentCaptor.forClass(ShortUrl.class);
+        verify(persister, times(3)).insert(captor.capture());
+        // cada tentativa usa uma entidade nova, sem reaproveitar a que falhou
+        assertThat(captor.getAllValues()).doesNotHaveDuplicates();
+        assertThat(result).isSameAs(captor.getAllValues().get(2));
     }
 
     @Test
     void createFailsAfterTooManyCollisions() {
-        when(repository.existsByCode(anyString())).thenReturn(true);
+        when(persister.insert(any(ShortUrl.class))).thenThrow(uniqueViolation());
 
         assertThatThrownBy(() -> service.create(URL, null))
                 .isInstanceOf(IllegalStateException.class);
 
-        verify(repository, times(5)).existsByCode(anyString());
-        verify(repository, never()).save(any());
+        verify(persister, times(5)).insert(any(ShortUrl.class));
+    }
+
+    @Test
+    void createDoesNotRetryOnOtherIntegrityViolations() {
+        DataIntegrityViolationException notNull = new DataIntegrityViolationException("null value",
+                new SQLException("null value in column violates not-null constraint", "23502"));
+        when(persister.insert(any(ShortUrl.class))).thenThrow(notNull);
+
+        assertThatThrownBy(() -> service.create(URL, null)).isSameAs(notNull);
+
+        verify(persister, times(1)).insert(any(ShortUrl.class));
     }
 
     @ParameterizedTest
@@ -91,7 +117,7 @@ class ShortUrlServiceTest {
         assertThatThrownBy(() -> service.create(url, null))
                 .isInstanceOf(InvalidUrlException.class);
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(repository, persister);
     }
 
     @Test
@@ -100,7 +126,7 @@ class ShortUrlServiceTest {
                 .isInstanceOf(InvalidUrlException.class)
                 .hasMessageContaining("futuro");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(repository, persister);
     }
 
     @Test

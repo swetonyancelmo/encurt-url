@@ -13,8 +13,6 @@ public interface ShortUrlRepository extends JpaRepository<ShortUrl, Long> {
 
     Optional<ShortUrl> findByCode(String code);
 
-    boolean existsByCode(String code);
-
     @Query("""
             SELECT s FROM ShortUrl s
             WHERE s.code = :code
