@@ -48,6 +48,8 @@ public class ShortUrlController {
     @ApiResponse(responseCode = "201", description = "URL curta criada")
     @ApiResponse(responseCode = "400", description = "URL inválida, expiração no passado ou corpo malformado",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "429", description = "Limite de requisições por IP excedido (veja o header Retry-After)",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     @PostMapping
     public ResponseEntity<ShortUrlResponse> create(@Valid @RequestBody CreateShortUrlRequest request) {
         CreatedShortUrl created = shortUrlService.create(request.url(), request.expiresAt());
@@ -65,6 +67,8 @@ public class ShortUrlController {
     @ApiResponse(responseCode = "401", description = "Token de gerenciamento ausente",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "403", description = "Token não confere com este link",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "429", description = "Limite de requisições por IP excedido (veja o header Retry-After)",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     @SecurityRequirement(name = OpenApiConfig.MANAGEMENT_TOKEN)
     @DeleteMapping("/{code}")
@@ -87,6 +91,8 @@ public class ShortUrlController {
     @ApiResponse(responseCode = "401", description = "Token de gerenciamento ausente",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "403", description = "Token não confere com este link",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "429", description = "Limite de requisições por IP excedido (veja o header Retry-After)",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     @SecurityRequirement(name = OpenApiConfig.MANAGEMENT_TOKEN)
     @GetMapping("/{code}/stats")

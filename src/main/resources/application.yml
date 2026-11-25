@@ -10,4 +10,19 @@ spring:
       ddl-auto: validate
 
 app:
+  rate-limit:
+    enabled: true
+    # Limites por IP, com reposição contínua (token bucket). O redirecionamento não é limitado.
+    create:
+      requests: 10
+      window: 1m
+    management:
+      requests: 30
+      window: 1m
+  # Chave do HMAC usado para anonimizar IPs. Em produção, defina IP_HASH_SECRET (ex.: openssl rand -hex 32).
   ip-hash-secret: ${IP_HASH_SECRET:dev-only-change-me}
+
+server:
+  # Atrás de proxy/load balancer use FORWARD_HEADERS_STRATEGY=framework para enxergar o IP real do cliente
+  # (usado no rate limit e no ip_hash). Sem proxy, mantenha "none": senão o header X-Forwarded-For é forjável.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}

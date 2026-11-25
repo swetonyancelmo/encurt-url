@@ -32,7 +32,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(ShortUrlController.class)
+@WebMvcTest(value = ShortUrlController.class, properties = "app.rate-limit.enabled=false")
 class ShortUrlControllerTest {
 
     private static final String PROBLEM_JSON = "application/problem+json";

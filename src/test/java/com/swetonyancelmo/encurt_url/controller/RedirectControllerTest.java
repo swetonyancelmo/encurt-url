@@ -15,7 +15,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(RedirectController.class)
+@WebMvcTest(value = RedirectController.class, properties = "app.rate-limit.enabled=false")
 class RedirectControllerTest {
 
     private static final String TARGET = "https://www.example.com/artigo?id=123";

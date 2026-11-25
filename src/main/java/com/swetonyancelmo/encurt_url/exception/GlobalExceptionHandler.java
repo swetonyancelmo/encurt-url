@@ -66,6 +66,13 @@ public class GlobalExceptionHandler {
         return problem(HttpStatus.FORBIDDEN, "Acesso negado", ex.getMessage());
     }
 
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ProblemDetail> handleRateLimit(RateLimitExceededException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(problem(HttpStatus.TOO_MANY_REQUESTS, "Muitas requisições", ex.getMessage()));
+    }
+
     @ExceptionHandler(InvalidPeriodException.class)
     public ProblemDetail handleInvalidPeriod(InvalidPeriodException ex) {
         return problem(HttpStatus.BAD_REQUEST, "Período inválido", ex.getMessage());

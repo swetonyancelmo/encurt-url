@@ -7,7 +7,7 @@
 ![Java](https://img.shields.io/badge/Java-25-ED8B00?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.2-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
-![Testes](https://img.shields.io/badge/testes-103_passando-brightgreen)
+![Testes](https://img.shields.io/badge/testes-121_passando-brightgreen)
 
 </div>
 
@@ -91,6 +91,7 @@ curl -X DELETE http://localhost:8080/api/urls/aB3dE9x \
 | `400` | URL inválida, data no passado ou período de estatísticas incorreto |
 | `401` | Faltou o token |
 | `403` | O token não é deste link |
+| `429` | Muitas requisições do mesmo IP (veja o header `Retry-After`) |
 | `404` | Link inexistente, desativado ou expirado |
 
 Os erros vêm em formato padronizado (RFC 7807), com `title` e `detail` explicando o que houve.
@@ -104,6 +105,9 @@ Os erros vêm em formato padronizado (RFC 7807), com `title` e `detail` explican
 | Variável | O que é |
 |---|---|
 | `IP_HASH_SECRET` | Chave usada para anonimizar IPs. **Defina em produção** (gere uma com `openssl rand -hex 32`). Em desenvolvimento já existe um valor padrão. |
+| `FORWARD_HEADERS_STRATEGY` | Use `framework` quando a API estiver atrás de proxy ou load balancer, para enxergar o IP real de quem acessa. Sem proxy, deixe o padrão (`none`). |
+
+Os limites de requisições ficam em `app.rate-limit` no `application.yml` (veja abaixo).
 
 ## ✅ Testes
 
@@ -111,7 +115,7 @@ Os erros vêm em formato padronizado (RFC 7807), com `title` e `detail` explican
 mvn test
 ```
 
-São **103 testes**: unitários (rápidos) e de integração com um PostgreSQL de verdade, que sobe sozinho via Testcontainers.
+São **121 testes**: unitários (rápidos) e de integração com um PostgreSQL de verdade, que sobe sozinho via Testcontainers.
 
 > 🐳 Os testes de integração precisam do **Docker** ligado. Sem ele, são pulados e só os unitários rodam.
 
@@ -178,6 +182,22 @@ O código do link é público (está no próprio endereço curto), então não s
 - A resposta da criação não pode ser guardada em cache.
 
 **O preço:** quem perder o token perde o controle do link. Links criados antes desse recurso não têm dono e não aceitam nenhum token.
+
+</details>
+
+<details>
+<summary><b>🚦 Como funciona o limite de requisições?</b></summary>
+
+Cada IP tem uma "cota" que se recupera aos poucos, como uma torneira pingando: o padrão é **10 criações de link por minuto** e **30 chamadas de gerenciamento** (`DELETE` e `/stats`) **por minuto**. Passou do limite, a API responde **429** com o header `Retry-After` dizendo quantos segundos esperar.
+
+- **Protege o token:** quem tentar adivinhar tokens é barrado depois de 30 tentativas, e enquanto estiver barrado nem o token certo funciona *para aquele IP*. O dono, de outro IP, não é afetado.
+- **O redirecionamento não tem limite:** é o caminho público e quente do serviço, e limitá-lo puniria quem só clica no link.
+- **Requisições inválidas também gastam a cota**, senão dava para martelar o servidor com pedidos errados.
+- **Os limites são ajustáveis** em `app.rate-limit` (`requests` e `window`), e dá para desligar com `app.rate-limit.enabled=false`.
+
+**Cuidados:**
+- O controle fica **na memória** de cada instância. Com várias instâncias, o limite real é multiplicado por elas. Para um limite compartilhado seria preciso algo como o Redis.
+- Atrás de proxy, sem `FORWARD_HEADERS_STRATEGY=framework`, **todos os usuários parecem ter o mesmo IP** e dividem uma única cota. Mas só ligue essa opção se houver mesmo um proxy na frente: sem ele, qualquer pessoa consegue forjar o header `X-Forwarded-For` e fugir do limite.
 
 </details>
 
