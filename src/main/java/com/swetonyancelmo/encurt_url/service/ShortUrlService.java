@@ -91,6 +91,25 @@ public class ShortUrlService {
         shortUrl.setActive(false);
     }
 
+    /**
+     * Troca o token de gerenciamento. O antigo deixa de valer imediatamente e o novo é devolvido
+     * uma única vez. A troca é atômica: se duas rotações disputarem o mesmo token antigo, só uma vence.
+     */
+    @Transactional
+    public String rotateManagementToken(String code, String currentToken) {
+        ShortUrl shortUrl = shortUrlRepository.findByCode(code)
+                .orElseThrow(() -> new ShortUrlNotFoundException(code));
+        requireManagement(shortUrl, currentToken);
+
+        String newToken = tokenService.generate();
+        int updated = shortUrlRepository.replaceManagementTokenHash(
+                code, shortUrl.getManagementTokenHash(), tokenService.hash(newToken));
+        if (updated == 0) {
+            throw new InvalidManagementTokenException(); // outra rotação trocou o token antes
+        }
+        return newToken;
+    }
+
     private void requireManagement(ShortUrl shortUrl, String token) {
         if (token == null || token.isBlank()) {
             throw new MissingManagementTokenException();

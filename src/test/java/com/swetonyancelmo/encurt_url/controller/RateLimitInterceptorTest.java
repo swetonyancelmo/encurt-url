@@ -150,4 +150,19 @@ class RateLimitInterceptorTest {
                         .with(fromIp("10.0.0.8")))
                 .andExpect(status().isCreated());
     }
+
+    @Test
+    void rotateTokenSharesTheManagementQuota() throws Exception {
+        when(shortUrlService.rotateManagementToken(anyString(), any())).thenReturn("novo");
+
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(post("/api/urls/abc1234/rotate-token").with(fromIp("10.0.0.9")))
+                    .andExpect(status().isOk());
+        }
+
+        mockMvc.perform(post("/api/urls/abc1234/rotate-token").with(fromIp("10.0.0.9")))
+                .andExpect(status().isTooManyRequests());
+        mockMvc.perform(get("/api/urls/abc1234/stats").with(fromIp("10.0.0.9")))
+                .andExpect(status().isTooManyRequests());
+    }
 }

@@ -246,4 +246,61 @@ class ShortUrlServiceTest {
         assertThatThrownBy(() -> service.authorizeManagement("nope", "x"))
                 .isInstanceOf(ShortUrlNotFoundException.class);
     }
+
+    // ---------- rotateManagementToken ----------
+
+    @Test
+    void rotateReplacesTheHashAndReturnsANewToken() {
+        ShortUrl shortUrl = ownedUrl("token-antigo");
+        String oldHash = shortUrl.getManagementTokenHash();
+        when(repository.findByCode("abc1234")).thenReturn(Optional.of(shortUrl));
+        when(repository.replaceManagementTokenHash(eq("abc1234"), eq(oldHash), anyString())).thenReturn(1);
+
+        String newToken = service.rotateManagementToken("abc1234", "token-antigo");
+
+        ArgumentCaptor<String> newHash = ArgumentCaptor.forClass(String.class);
+        verify(repository).replaceManagementTokenHash(eq("abc1234"), eq(oldHash), newHash.capture());
+        assertThat(newToken).matches("[A-Za-z0-9_-]{43}").isNotEqualTo("token-antigo");
+        assertThat(newHash.getValue()).isEqualTo(tokenService.hash(newToken)).isNotEqualTo(oldHash);
+    }
+
+    @Test
+    void rotateRejectsMissingAndWrongTokensWithoutTouchingTheHash() {
+        ShortUrl shortUrl = ownedUrl("token-antigo");
+        when(repository.findByCode("abc1234")).thenReturn(Optional.of(shortUrl));
+
+        assertThatThrownBy(() -> service.rotateManagementToken("abc1234", null))
+                .isInstanceOf(MissingManagementTokenException.class);
+        assertThatThrownBy(() -> service.rotateManagementToken("abc1234", "errado"))
+                .isInstanceOf(InvalidManagementTokenException.class);
+
+        verify(repository, never()).replaceManagementTokenHash(any(), any(), any());
+    }
+
+    @Test
+    void rotateFailsWhenAnotherRotationWonTheRace() {
+        ShortUrl shortUrl = ownedUrl("token-antigo");
+        when(repository.findByCode("abc1234")).thenReturn(Optional.of(shortUrl));
+        when(repository.replaceManagementTokenHash(any(), any(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.rotateManagementToken("abc1234", "token-antigo"))
+                .isInstanceOf(InvalidManagementTokenException.class);
+    }
+
+    @Test
+    void rotateThrowsNotFoundForUnknownCode() {
+        when(repository.findByCode("nope")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.rotateManagementToken("nope", "x"))
+                .isInstanceOf(ShortUrlNotFoundException.class);
+    }
+
+    @Test
+    void legacyUrlWithoutHashCannotBeRotated() {
+        ShortUrl legacy = ShortUrl.builder().id(1L).code("abc1234").originalUrl(URL).build();
+        when(repository.findByCode("abc1234")).thenReturn(Optional.of(legacy));
+
+        assertThatThrownBy(() -> service.rotateManagementToken("abc1234", "qualquer"))
+                .isInstanceOf(InvalidManagementTokenException.class);
+    }
 }

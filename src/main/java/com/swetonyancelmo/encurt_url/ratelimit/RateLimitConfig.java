@@ -13,7 +13,8 @@ import java.util.Set;
  * Limites aplicados:
  * <ul>
  *   <li>criação de links: {@code POST /api/urls};</li>
- *   <li>gerenciamento (tentativas de token): {@code DELETE /api/urls/{code}} e {@code GET /api/urls/{code}/stats}.</li>
+ *   <li>gerenciamento (tentativas de token): {@code DELETE /api/urls/{code}}, {@code GET /api/urls/{code}/stats}
+ *       e {@code POST /api/urls/{code}/rotate-token}.</li>
  * </ul>
  * O redirecionamento público ({@code GET /{code}}) não é limitado.
  */
@@ -48,7 +49,7 @@ public class RateLimitConfig implements WebMvcConfigurer {
         }
         registry.addInterceptor(new RateLimitInterceptor(createLimiter, Set.of("POST")))
                 .addPathPatterns("/api/urls");
-        registry.addInterceptor(new RateLimitInterceptor(managementLimiter, Set.of("DELETE", "GET")))
-                .addPathPatterns("/api/urls/*", "/api/urls/*/stats");
+        registry.addInterceptor(new RateLimitInterceptor(managementLimiter, Set.of("DELETE", "GET", "POST")))
+                .addPathPatterns("/api/urls/*", "/api/urls/*/stats", "/api/urls/*/rotate-token");
     }
 }

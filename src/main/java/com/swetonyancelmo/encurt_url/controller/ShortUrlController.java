@@ -3,6 +3,7 @@ package com.swetonyancelmo.encurt_url.controller;
 import com.swetonyancelmo.encurt_url.config.OpenApiConfig;
 import com.swetonyancelmo.encurt_url.dto.ClickStatsResponse;
 import com.swetonyancelmo.encurt_url.dto.CreateShortUrlRequest;
+import com.swetonyancelmo.encurt_url.dto.RotatedTokenResponse;
 import com.swetonyancelmo.encurt_url.dto.ShortUrlResponse;
 import com.swetonyancelmo.encurt_url.exception.InvalidPeriodException;
 import com.swetonyancelmo.encurt_url.service.ClickService;
@@ -78,6 +79,30 @@ public class ShortUrlController {
             String authorization) {
         shortUrlService.deactivate(code, bearerToken(authorization));
         return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Troca o token de gerenciamento",
+            description = "Exige o token atual. O token antigo deixa de valer imediatamente e o novo é devolvido "
+                    + "uma única vez. Não recupera um token perdido: sem o token atual não há como provar a posse.")
+    @ApiResponse(responseCode = "200", description = "Token trocado")
+    @ApiResponse(responseCode = "401", description = "Token de gerenciamento ausente",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "403", description = "Token não confere com este link",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "404", description = "Código não encontrado",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "429", description = "Limite de requisições por IP excedido (veja o header Retry-After)",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @SecurityRequirement(name = OpenApiConfig.MANAGEMENT_TOKEN)
+    @PostMapping("/{code}/rotate-token")
+    public ResponseEntity<RotatedTokenResponse> rotateToken(
+            @Parameter(description = "Código da URL curta", example = "aB3dE9x") @PathVariable String code,
+            @Parameter(hidden = true) @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false)
+            String authorization) {
+        String newToken = shortUrlService.rotateManagementToken(code, bearerToken(authorization));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore()) // a resposta carrega um segredo: não pode ser cacheada
+                .body(new RotatedTokenResponse(code, newToken));
     }
 
     @Operation(summary = "Estatísticas de cliques",

@@ -321,4 +321,42 @@ class ShortUrlControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("URL curta não encontrada"));
     }
+
+    // ---------- POST /api/urls/{code}/rotate-token ----------
+
+    @Test
+    void rotateTokenReturnsTheNewTokenOnceAndForbidsCaching() throws Exception {
+        when(shortUrlService.rotateManagementToken("aB3dE9x", "token-antigo")).thenReturn("token-novo");
+
+        mockMvc.perform(post("/api/urls/aB3dE9x/rotate-token").header("Authorization", "Bearer token-antigo"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("aB3dE9x"))
+                .andExpect(jsonPath("$.managementToken").value("token-novo"))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+    }
+
+    @Test
+    void rotateTokenReturns401WithoutToken() throws Exception {
+        when(shortUrlService.rotateManagementToken("aB3dE9x", null)).thenThrow(new MissingManagementTokenException());
+
+        mockMvc.perform(post("/api/urls/aB3dE9x/rotate-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "Bearer"));
+    }
+
+    @Test
+    void rotateTokenReturns403WithWrongToken() throws Exception {
+        when(shortUrlService.rotateManagementToken("aB3dE9x", "errado")).thenThrow(new InvalidManagementTokenException());
+
+        mockMvc.perform(post("/api/urls/aB3dE9x/rotate-token").header("Authorization", "Bearer errado"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void rotateTokenReturns404ForUnknownCode() throws Exception {
+        when(shortUrlService.rotateManagementToken("nope", "tok")).thenThrow(new ShortUrlNotFoundException("nope"));
+
+        mockMvc.perform(post("/api/urls/nope/rotate-token").header("Authorization", "Bearer tok"))
+                .andExpect(status().isNotFound());
+    }
 }

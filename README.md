@@ -7,7 +7,7 @@
 ![Java](https://img.shields.io/badge/Java-25-ED8B00?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.2-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
-![Testes](https://img.shields.io/badge/testes-121_passando-brightgreen)
+![Testes](https://img.shields.io/badge/testes-136_passando-brightgreen)
 
 </div>
 
@@ -64,7 +64,16 @@ curl http://localhost:8080/api/urls/aB3dE9x/stats \
   -H "Authorization: Bearer SEU_TOKEN"
 ```
 
-**4. Desative o link quando quiser**
+**4. Troque o token quando quiser** (por exemplo, se suspeitar que vazou)
+
+```bash
+curl -X POST http://localhost:8080/api/urls/aB3dE9x/rotate-token \
+  -H "Authorization: Bearer SEU_TOKEN"
+```
+
+O token antigo **morre na hora**, e o novo aparece só nesta resposta.
+
+**5. Desative o link quando quiser**
 
 ```bash
 curl -X DELETE http://localhost:8080/api/urls/aB3dE9x \
@@ -79,6 +88,7 @@ curl -X DELETE http://localhost:8080/api/urls/aB3dE9x \
 | `GET` | `/{code}` | ❌ | Redireciona para a URL original |
 | `GET` | `/api/urls/{code}/stats` | ✅ | Mostra total de cliques e série diária |
 | `DELETE` | `/api/urls/{code}` | ✅ | Desativa o link |
+| `POST` | `/api/urls/{code}/rotate-token` | ✅ | Troca o token (o antigo deixa de valer) |
 
 <details>
 <summary><b>Códigos de resposta</b></summary>
@@ -115,7 +125,7 @@ Os limites de requisições ficam em `app.rate-limit` no `application.yml` (veja
 mvn test
 ```
 
-São **121 testes**: unitários (rápidos) e de integração com um PostgreSQL de verdade, que sobe sozinho via Testcontainers.
+São **136 testes**: unitários (rápidos) e de integração com um PostgreSQL de verdade, que sobe sozinho via Testcontainers.
 
 > 🐳 Os testes de integração precisam do **Docker** ligado. Sem ele, são pulados e só os unitários rodam.
 
@@ -181,14 +191,16 @@ O código do link é público (está no próprio endereço curto), então não s
 - A comparação leva sempre o mesmo tempo, o que impede descobrir o token "aos poucos".
 - A resposta da criação não pode ser guardada em cache.
 
-**O preço:** quem perder o token perde o controle do link. Links criados antes desse recurso não têm dono e não aceitam nenhum token.
+**Trocar o token:** quem ainda tem o token pode trocá-lo a qualquer momento (`POST /api/urls/{code}/rotate-token`). O antigo deixa de valer imediatamente. Se duas trocas acontecerem ao mesmo tempo com o mesmo token, só uma vence, para ninguém ficar com um token que já nasceu inválido.
+
+**O preço:** a troca exige o token atual, então **ela não recupera um token perdido**: sem ele, não há como provar que você é o dono. Recuperar de verdade exigiria outro canal de prova (como um e-mail cadastrado), que este projeto não tem. Links criados antes desse recurso não têm dono e não aceitam nenhum token.
 
 </details>
 
 <details>
 <summary><b>🚦 Como funciona o limite de requisições?</b></summary>
 
-Cada IP tem uma "cota" que se recupera aos poucos, como uma torneira pingando: o padrão é **10 criações de link por minuto** e **30 chamadas de gerenciamento** (`DELETE` e `/stats`) **por minuto**. Passou do limite, a API responde **429** com o header `Retry-After` dizendo quantos segundos esperar.
+Cada IP tem uma "cota" que se recupera aos poucos, como uma torneira pingando: o padrão é **10 criações de link por minuto** e **30 chamadas de gerenciamento** (`DELETE`, `/stats` e `/rotate-token`) **por minuto**. Passou do limite, a API responde **429** com o header `Retry-After` dizendo quantos segundos esperar.
 
 - **Protege o token:** quem tentar adivinhar tokens é barrado depois de 30 tentativas, e enquanto estiver barrado nem o token certo funciona *para aquele IP*. O dono, de outro IP, não é afetado.
 - **O redirecionamento não tem limite:** é o caminho público e quente do serviço, e limitá-lo puniria quem só clica no link.
